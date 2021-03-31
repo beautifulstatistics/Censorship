@@ -4,10 +4,9 @@ source('blclean.R')
 library(brms)
 options(mc.cores=4)
 
-models <- function(family, prior){
+models <- function(family){
     form <- brmsformula(y|cens(cens,ub)+weights(weights)~1,family=family)
-    br <- brm(form,bld,iter=60000,
-              prior = prior,
+    br <- brm(form,bld,iter=40000,
               save_pars = save_pars(all = TRUE))
     br
 }

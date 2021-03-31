@@ -11,7 +11,7 @@ models <- readRDS('blmodel.RDS')
 # optional add weights.
 
 df <- data.frame(days = models$bln$d1,
-                 bin = as.numeric(rbernoulli(nrow(models$bln),models$prob))
+                 bin = as.numeric(rbernoulli(nrow(models$bln),.86)),
                  weights=1)
 
 #######################################################
@@ -32,7 +32,7 @@ stan_funs <- "
 
 stanvars <- stanvar(scode = stan_funs, block = "functions")
 
-form <- bf(bin|vint(ub)+weights(weights)~0+Intercept,family=bern_lognormal)
+form <- bf(bin|vint(days)+weights(weights)~0+Intercept,family=bern_lognormal)
 
 prior <- c(prior('normal(4.35,.14)',coef=Intercept),
            prior('normal(3.08,.13)',class=sigma))
@@ -63,18 +63,4 @@ bern_null <- brm(bin~0+Intercept,
                  family=bernoulli,
                  save_pars=save_pars(all=TRUE))
 
-power <- function(p){
-  df$bin <- as.numeric(rbernoulli(nrow(models$bln),p))
-  
-  bernlognorm_power <- update(bernlognorm,newdata=df)
-  bernlognorm_null_power <- update(bernlognorm_null,newdata=df)
-  bern_null_power <- update(bern_null,newdata=df)
-  c(p,post_prob(bernlognorm_power,bernlognorm_null_power,bern_null_power))
-}
-
-t1 <- Sys.time()
-
-power_s <- map(seq(.05,.95,.05),power)
-
-t2 <- Sys.time()
-#############################################################
+saveRDS(list(bernlognorm=bernlognorm,bernlognorm_null=bernlognorm_null,bern_null=bern_null),file='bltest_models.RDS')
