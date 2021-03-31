@@ -1,4 +1,4 @@
-setwd("~/Thesis")
+setwd("~/Censorship/Uncensorship/")
 library(tidyverse)
 
 bl <- read.csv('blacklist.csv',header=TRUE)
@@ -24,6 +24,10 @@ bl$d3 <- gsub('\\.','-',bl$d3)
 bln <- bl %>%
     filter(d2 == '') %>%
     select(-remarks) %>%
+    select(d1) %>%
+    mutate(d1 = as.integer(Sys.Date() - as.Date(d1))) %>%
+    mutate(prob = findInterval(d1,pred)) %>%
+    mutate(prob = prob/length(pred)) %>%
     as.data.frame
 
 blc <- bl %>%

@@ -1,46 +1,80 @@
+setwd("~/Censorship/Uncensorship/")
 library(tidyverse)
 library(brms)
-
-setwd("~/Thesis")
+options(mc.cores=4)
 
 models <- readRDS('blmodel.RDS')
 
-pred <- posterior_predict(models$brln,nsamples=10) %>%
-  sort
-
-prob <- models$bln %>%
-  select(d1) %>%
-  mutate(d1 = as.integer(Sys.Date() - as.Date(d1))) %>%
-  mutate(d1 = findInterval(d1,pred)) %>%
-  mutate(d1 = d1/length(pred)) %>%
-  pull
-
-
 ###################################################
 
-# test. Replace 'out' with the actual binary outcome.
+# test. Replace 'bin' with the actual binary outcome.
 # optional add weights.
 
-df <- data.frame(out = rbernoulli(length(prob),prob),
-                 prob)
+df <- data.frame(days = models$bln$d1,
+                 bin = as.numeric(rbernoulli(nrow(models$bln),models$prob))
+                 weights=1)
 
-logit <- function(x) log(x/(1-x))
+#######################################################
 
-br_model <- brm(out~0 + logit(datedt),df,
-          family=bernoulli(link='logit'),
-          prior=prior('std_normal()',coef='logitdatedt'),
-          sample_prior='yes',
-          iter=60000,
-          save_pars=save_pars(all=TRUE))
+# https://cran.r-project.org/web/packages/brms/vignettes/brms_customfamilies.html
 
-br_null <- brm(out~0 + Intercept,df,
-          family=bernoulli(link='logit'),
-          prior=prior('std_normal()',class=b),
-          sample_prior='yes',
-          iter=60000,
-          save_pars=save_pars(all=TRUE))
+bern_lognormal <- custom_family(
+  "bern_lognormal", dpars = c("mu", "sigma"),
+  links = c("identity", "log"), lb = c(NA, 0),
+  type = "int", vars = "vint1[n]"
+)
 
-post_prob(br_model,br_null)
+stan_funs <- "
+  real bern_lognormal_lpmf(int y, real mu, real sigma, int T) {
+    return bernoulli_lpmf(y | lognormal_cdf(T , mu, sigma));
+  }
+"
 
-# as a secondary test:
+stanvars <- stanvar(scode = stan_funs, block = "functions")
 
+form <- bf(bin|vint(ub)+weights(weights)~0+Intercept,family=bern_lognormal)
+
+prior <- c(prior('normal(4.35,.14)',coef=Intercept),
+           prior('normal(3.08,.13)',class=sigma))
+
+prior_null <- c(prior('student_t(3, 0, 2.5)',coef=Intercept),
+           prior('student_t(3, 0, 2.5)',class=sigma))
+
+bernlognorm <- brm(form, 
+                   data = df, 
+                   prior=prior,
+                   iter=40000,
+                   family = bern_lognormal,
+                   save_pars=save_pars(all=TRUE),
+                   stanvars = stanvars)
+
+bernlognorm_null <- brm(form, 
+                        data = df, 
+                        prior=prior,
+                        iter=40000,
+                        family = bern_lognormal,
+                        save_pars=save_pars(all=TRUE),
+                        stanvars = stanvars)
+
+bern_null <- brm(bin~0+Intercept, 
+                 data = df,
+                 iter=40000,
+                 prior=prior('student_t(3, 0, 2.5)',coef=Intercept),
+                 family=bernoulli,
+                 save_pars=save_pars(all=TRUE))
+
+power <- function(p){
+  df$bin <- as.numeric(rbernoulli(nrow(models$bln),p))
+  
+  bernlognorm_power <- update(bernlognorm,newdata=df)
+  bernlognorm_null_power <- update(bernlognorm_null,newdata=df)
+  bern_null_power <- update(bern_null,newdata=df)
+  c(p,post_prob(bernlognorm_power,bernlognorm_null_power,bern_null_power))
+}
+
+t1 <- Sys.time()
+
+power_s <- map(seq(.05,.95,.05),power)
+
+t2 <- Sys.time()
+#############################################################
