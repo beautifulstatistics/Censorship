@@ -1,6 +1,7 @@
 setwd("~/Censorship/Uncensorship/")
 library(tidyverse)
 
+
 bl <- read.csv('blacklist.csv',header=TRUE)
 
 names(bl) <- bl[1,]
