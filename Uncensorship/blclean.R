@@ -17,31 +17,39 @@ bl$d2[1617] <- "2013-03-31"
 bl$d2[1732] <- "2013-01-04"
 bl$d2[1733] <- "2013-01-04"
 bl$d2[3258] <- "2011-10-31"
+bl$d4[2445] <- "2012-04-26"
 
 bl$d2 <- gsub('\\.','-',bl$d2)
 bl$d3 <- gsub('\\.','-',bl$d3)
 
 bln <- bl %>%
+    rownames_to_column('blrow') %>%
     filter(d2 == '') %>%
     select(-remarks) %>%
-    select(d1) %>%
-    mutate(d1 = as.integer(Sys.Date() - as.Date(d1))) %>%
+    mutate(d1 = (as.numeric(Sys.Date() - as.Date(d1))+1)/365.25) %>%
     as.data.frame
 
 blc <- bl %>%
+    rownames_to_column('blrow') %>%
     filter(d2 != '') %>%
     select(-remarks,-zh,-en,-link) %>%
     mutate(all_of(across(matches('d[1-6]'),function(x)
-        as.numeric(as.Date(x)-as.Date(d1))+1))) %>%
+        (as.numeric(as.Date(x)-as.Date(d1))+1)/365.25))) %>%
     as.data.frame
 
 #################################
+
 status <- function(v){
     vs <- v[seq(2,12,2)]
     
-    fpos <- ifelse('F' %in% vs, which('F' == vs), c(0))
-    npos <- ifelse('N' %in% vs, which('N' == vs), c(0))
-    ypos <- which(vs == 'Y')
+    tivs <- function(t){
+        if(t %in% vs) return(which(t == vs))
+        return(c(0))
+    }
+    
+    fpos <- tivs('F')
+    npos <- tivs('N')
+    ypos <- tivs('Y')
     
     yton <- c()
     ytof <- c()
@@ -63,14 +71,33 @@ status <- function(v){
         }
     }
     
-    yton <- ifelse(length(yton) != 0, yton, c(0))
-    ytof <- ifelse(length(ytof) != 0, ytof, c(0))
-    fton <- ifelse(length(fton) != 0, fton, c(0))
+    lro <- function(obj){
+        if(length(obj) != 0) return(obj)
+        return(c(0))
+    }
     
-    list(fpos=fpos,npos=npos,ypos=ypos,yton=yton,ytof=ytof,fton=fton)
+    yton <- lro(yton)
+    ytof <- lro(ytof)
+    fton <- lro(fton)
+    yend <- ifelse(rev(ypos)[1] > rev(npos)[1] & 
+                       rev(ypos)[1] > rev(fpos)[1],
+                   rev(ypos)[1],c(0))
+    fend <- ifelse(rev(fpos)[1] > rev(npos)[1] &
+                       rev(fpos)[1] > rev(ypos)[1],
+                   rev(fpos)[1],c(0))
+    
+    list(fpos=fpos,npos=npos,ypos=ypos,
+         yton=yton,ytof=ytof,
+         fton=fton,
+         yend=yend,
+         fend=fend)
 }
 
 mk_df <- function(v){
+    v <- unname(unlist(v))
+    blrow <- v[1]
+    v <- v[2:length(v)]
+    
     st <- status(v)
     vd <- as.numeric(v[seq(1,12,2)])
     
@@ -80,7 +107,7 @@ mk_df <- function(v){
             df <- rbind(df,data.frame(y=vd[i],
                                       cens='interval',
                                       ub=vd[i+1],
-                                      weights=1/length(st$yton),
+                                      weights=i+1,
                                       type='yton'))
         }
     }
@@ -90,8 +117,9 @@ mk_df <- function(v){
             df <- rbind(df,data.frame(y=vd[i],
                                       cens='interval',
                                       ub=vd[i+1],
-                                      weights=1/length(st$ytof)/2,
+                                      weights=i+.5,
                                       type='ytof'))
+            
         }
     }
     
@@ -100,18 +128,27 @@ mk_df <- function(v){
             df <- rbind(df,data.frame(y=vd[i],
                                       cens='interval',
                                       ub=vd[i+1],
-                                      weights=1/length(st$fton),
+                                      weights=i+1,
                                       type='fton'))
         }
     }
     
-    if(st$npos[1] == 0 & st$fpos[1] == 0){
-        df <- rbind(df,data.frame(y=vd[rev(st$ypos)[1]],
+    if(st$yend[1] != 0) {
+        df <- rbind(df,data.frame(y=vd[st$yend],
                                   cens='right',
-                                  ub=vd[rev(st$ypos)[1]] + 1,
-                                  weights=1,
-                                  type='ally'))
+                                  ub=vd[st$yend]+1,
+                                  weights=st$yend+1,
+                                  type='yend'))
+    } else if(st$fend[1] != 0) {
+        df <- rbind(df,data.frame(y=vd[st$fend],
+                                  cens='right',
+                                  ub=vd[st$fend]+1,
+                                  weights=st$fend+1,
+                                  type='fend'))
     }
+    
+    df$weights <- df$weights/sum(df$weights)
+    df$blrow <- blrow
     
     return(df)
 }
